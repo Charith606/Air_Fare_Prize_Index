@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine
+try:
+    from sqlalchemy import create_engine
+except ImportError:
+    create_engine = None
 
 try:
     import mysql.connector
@@ -24,7 +27,10 @@ _SQLITE_DB = Path(__file__).resolve().parents[2] / "data" / "airfare_index.db"
 
 def get_sqlalchemy_engine():
     """Return a SQLAlchemy engine connected to the local SQLite database."""
-    return create_engine(f"sqlite:///{_SQLITE_DB}")
+    if create_engine is not None:
+        return create_engine(f"sqlite:///{_SQLITE_DB}")
+    import sqlite3
+    return sqlite3.connect(str(_SQLITE_DB))
 
 
 def get_connection():
