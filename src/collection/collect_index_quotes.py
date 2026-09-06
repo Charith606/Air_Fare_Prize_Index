@@ -10,12 +10,13 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.api.ignav_client import search_ignav
 from src.collection.itinerary_extractor import extract_itineraries
 from src.config.database import get_connection
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 IMPORTER = PROJECT_ROOT / "src" / "import_cleaned_airfares.py"
 DEFAULT_WINDOWS = [1, 7, 15, 30, 45]
 USD_TO_INR_RATE = Decimal(os.getenv("USD_TO_INR_RATE", "84"))

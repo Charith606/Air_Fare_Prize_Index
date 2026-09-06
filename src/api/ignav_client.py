@@ -1,27 +1,27 @@
-import requests
+import sys
+from pathlib import Path
 
+# Automatically add the project root to sys.path
+root_path = str(Path(__file__).resolve().parents[2])
+if root_path not in sys.path:
+    sys.path.insert(0, root_path)
+
+import requests
 from src.config.settings import IGNAV_API_KEY
 
-
-# IGNAV API endpoint
+# 1. Official API Endpoint URL
 IGNAV_URL = "https://ignav.com/api/fares/one-way"
+
+# 2. Verified API Key
+API_KEY = IGNAV_API_KEY if IGNAV_API_KEY else "ignav_22ZTj_84EDJPYMuAaxSnwYTHRi8wof_1"
 
 
 def search_ignav(origin, destination, travel_date):
     """
     Search IGNAV for one-way airfare between two airports.
-
-    Parameters:
-        origin (str): Origin airport IATA code, e.g. DEL
-        destination (str): Destination airport IATA code, e.g. BOM
-        travel_date (str): Travel date in YYYY-MM-DD format
-
-    Returns:
-        dict: JSON response from IGNAV API
     """
-
     headers = {
-        "X-Api-Key": IGNAV_API_KEY,
+        "X-Api-Key": API_KEY,
         "Content-Type": "application/json"
     }
 

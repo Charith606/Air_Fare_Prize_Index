@@ -9,3 +9,5 @@ beautifulsoup4
 SQLAlchemy
 python-dotenv
 requests
+matplotlib
+python-docx

@@ -47,8 +47,12 @@ def clean_and_transfer_data():
         df['total_fare'] = df['price']
         
         # Insert into cleaned_fares
-        records = df[['id', 'collection_date', 'travel_date', 'origin', 'destination', 
-                      'airline', 'base_fare', 'taxes', 'total_fare', 'advance_days']].copy()
+        cols = ['id', 'collection_date', 'travel_date', 'origin', 'destination', 
+                'airline', 'base_fare', 'taxes', 'total_fare', 'advance_days']
+        if 'departure_time' in df.columns:
+            cols.append('departure_time')
+            
+        records = df[cols].copy()
         records = records.rename(columns={'id': 'quote_id'})
         
         records.to_sql('cleaned_fares', engine, if_exists='append', index=False)

@@ -1,6 +1,15 @@
+import sys
+from pathlib import Path
+
+# Add project root to sys.path
+root_path = str(Path(__file__).resolve().parents[2])
+if root_path not in sys.path:
+    sys.path.insert(0, root_path)
+
 import pandas as pd
 from datetime import date
-from src.config.database import get_sqlalchemy_engine, get_connection
+from sqlalchemy import text
+from src.config.database import get_sqlalchemy_engine
 
 def calculate_index(frequency: str = 'daily'):
     """
@@ -21,9 +30,6 @@ def calculate_index(frequency: str = 'daily'):
             print("No cleaned fares available to calculate index.")
             return
 
-        # Base price (mock base price initialization if index is just starting)
-        # For prototype, let's normalize everything to an arbitrary base of 100 for today.
-        
         # Group by collection date, origin, and destination
         daily_route_avg = fares_df.groupby(['collection_date', 'origin', 'destination'])['total_fare'].mean().reset_index()
         
@@ -49,7 +55,7 @@ def calculate_index(frequency: str = 'daily'):
         
         # Clear existing daily index using the SQLAlchemy engine
         with engine.begin() as conn:
-            conn.execute("DELETE FROM price_index WHERE frequency='daily'")
+            conn.execute(text("DELETE FROM price_index WHERE frequency='daily'"))
         
         records.to_sql('price_index', engine, if_exists='append', index=False)
         print(f"Calculated and updated {frequency} index for {len(records)} days.")
@@ -57,6 +63,9 @@ def calculate_index(frequency: str = 'daily'):
     except Exception as e:
         print(f"Error calculating index: {e}")
         raise e
+
+def build_daily_index(target_date=None):
+    return calculate_index(frequency='daily')
 
 if __name__ == "__main__":
     calculate_index()
