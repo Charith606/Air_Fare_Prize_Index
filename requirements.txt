@@ -6,4 +6,3 @@ python-docx
 beautifulsoup4
 python-dotenv
 SQLAlchemy
-playwright
