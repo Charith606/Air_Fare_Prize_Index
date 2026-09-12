@@ -1,8 +1,14 @@
+playwright
+playwright-stealth
 streamlit
+fastapi
+uvicorn
 pandas
+pytest
+beautifulsoup4
+SQLAlchemy
+psycopg2-binary
+python-dotenv
 requests
 matplotlib
 python-docx
-beautifulsoup4
-python-dotenv
-SQLAlchemy

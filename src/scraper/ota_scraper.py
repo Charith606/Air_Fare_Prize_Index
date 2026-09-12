@@ -4,10 +4,8 @@ import math
 import random
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Any
-try:
-    from playwright_stealth import Stealth
-except ImportError:
-    Stealth = None
+from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
 import logging
 
 logging.basicConfig(level=logging.INFO)

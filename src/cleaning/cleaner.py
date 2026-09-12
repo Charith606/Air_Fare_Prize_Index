@@ -1,5 +1,14 @@
+import sys
+from pathlib import Path
+
+# Add project root to sys.path
+root_path = str(Path(__file__).resolve().parents[2])
+if root_path not in sys.path:
+    sys.path.insert(0, root_path)
+
 import pandas as pd
 from src.config.database import get_sqlalchemy_engine
+
 
 def clean_and_transfer_data():
     """

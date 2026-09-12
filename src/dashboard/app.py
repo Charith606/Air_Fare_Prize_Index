@@ -45,6 +45,7 @@ from src.index.index_builder import calculate_index
 from src.scraper.ota_scraper import OTAScraper
 from src.api.ignav_client import search_ignav
 from src.collection.itinerary_extractor import extract_itineraries
+from src.config.database import get_sqlalchemy_engine, get_connection
 
 # Set page config
 st.set_page_config(page_title="Real-time Airfare Price Index (APIx)", layout="wide")
@@ -58,20 +59,24 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_auth_db():
-    conn = sqlite3.connect(str(DB_PATH))
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS admin_users (
-            username TEXT PRIMARY KEY,
-            password TEXT
-        )
-    """)
-    cursor.execute("SELECT COUNT(*) FROM admin_users")
-    if cursor.fetchone()[0] == 0:
-        # Seed default admin account: admin / adminpassword
-        cursor.execute("INSERT INTO admin_users VALUES (?, ?)", ("admin", hash_password("adminpassword")))
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admin_users (
+                username VARCHAR(255) PRIMARY KEY,
+                password TEXT
+            )
+        """)
+        cursor.execute("SELECT COUNT(*) FROM admin_users")
+        if cursor.fetchone()[0] == 0:
+            # Seed default admin account: admin / adminpassword
+            param = "%s" if (hasattr(cursor, "mogrify") or "psycopg" in str(type(cursor))) else "?"
+            cursor.execute(f"INSERT INTO admin_users VALUES ({param}, {param})", ("admin", hash_password("adminpassword")))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Auth DB Init Notice: {e}")
 
 # Run auth db initializer
 init_auth_db()
@@ -79,46 +84,43 @@ init_auth_db()
 # ----------------- CACHED DATA LOADING FUNCTIONS -----------------
 @st.cache_data(ttl=5)
 def load_fares_data():
-    conn = sqlite3.connect(str(DB_PATH))
-    fares_df = pd.read_sql_query("SELECT * FROM cleaned_fares", conn)
-    conn.close()
+    engine = get_sqlalchemy_engine()
+    fares_df = pd.read_sql_query("SELECT * FROM cleaned_fares", engine)
     fares_df.columns = fares_df.columns.str.lower()
     return fares_df
 
 @st.cache_data(ttl=5)
 def load_index_data():
-    conn = sqlite3.connect(str(DB_PATH))
-    index_df = pd.read_sql_query("SELECT * FROM price_index WHERE frequency='daily'", conn)
-    conn.close()
+    engine = get_sqlalchemy_engine()
+    index_df = pd.read_sql_query("SELECT * FROM price_index WHERE frequency='daily'", engine)
     index_df.columns = index_df.columns.str.lower()
     return index_df
 
 @st.cache_data(ttl=5)
 def load_routes_data():
-    conn = sqlite3.connect(str(DB_PATH))
-    routes_df = pd.read_sql_query("SELECT * FROM routes", conn)
-    conn.close()
+    engine = get_sqlalchemy_engine()
+    routes_df = pd.read_sql_query("SELECT * FROM routes", engine)
     routes_df.columns = routes_df.columns.str.lower()
     return routes_df
 
 def get_stats():
-    conn = sqlite3.connect(str(DB_PATH))
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM raw_quotes")
-    raw_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM cleaned_fares")
-    cleaned_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM price_index")
-    index_count = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM routes")
-    routes_count = cursor.fetchone()[0]
-    conn.close()
+    try:
+        engine = get_sqlalchemy_engine()
+        with engine.connect() as conn:
+            from sqlalchemy import text
+            raw_count = conn.execute(text("SELECT COUNT(*) FROM raw_quotes")).scalar() or 0
+            cleaned_count = conn.execute(text("SELECT COUNT(*) FROM cleaned_fares")).scalar() or 0
+            index_count = conn.execute(text("SELECT COUNT(*) FROM price_index")).scalar() or 0
+            routes_count = conn.execute(text("SELECT COUNT(*) FROM routes")).scalar() or 0
+    except Exception:
+        raw_count, cleaned_count, index_count, routes_count = 0, 0, 0, 0
     return {
         "raw": raw_count,
         "cleaned": cleaned_count,
         "index": index_count,
         "routes": routes_count
     }
+
 
 # ----------------- TABLE COLUMN CONFIGURATION HELPER -----------------
 def get_table_column_config(df: pd.DataFrame) -> dict:
@@ -1170,8 +1172,9 @@ def run_live_backend_pipeline(progress_bar, status_text, protocol_choice="scrape
         status_text.error("No active routes configured in database. Scraper canceled.")
         return
         
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = get_connection()
     cursor = conn.cursor()
+    is_pg = hasattr(cursor, "mogrify") or "psycopg" in str(type(cursor))
     
     total_steps = len(routes) * 5  # 5 booking windows (T+1, 7, 15, 30, 45)
     current_step = 0
@@ -1208,12 +1211,17 @@ def run_live_backend_pipeline(progress_bar, status_text, protocol_choice="scrape
                         flights = extract_itineraries(payload, date.today().isoformat(), window, travel_date.isoformat(), origin, destination)
                 
                 # Write live quotes to raw_quotes table
+                insert_sql = """
+                    INSERT INTO raw_quotes 
+                    (collection_date, travel_date, origin, destination, airline, price, currency, departure_time, fare_type, advance_days)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """ if is_pg else """
+                    INSERT INTO raw_quotes 
+                    (collection_date, travel_date, origin, destination, airline, price, currency, departure_time, fare_type, advance_days)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
                 for flight in flights:
-                    cursor.execute("""
-                        INSERT INTO raw_quotes 
-                        (collection_date, travel_date, origin, destination, airline, price, currency, departure_time, fare_type, advance_days)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
+                    cursor.execute(insert_sql, (
                         flight.get('collection_date', date.today().isoformat()),
                         flight.get('travel_date', travel_date.isoformat()),
                         flight.get('origin', origin),
@@ -1388,9 +1396,10 @@ else:
                 if login_user == "" or login_pass == "":
                     st.error("Fields cannot be empty.")
                 else:
-                    conn = sqlite3.connect(str(DB_PATH))
+                    conn = get_connection()
                     cursor = conn.cursor()
-                    cursor.execute("SELECT password FROM admin_users WHERE username = ?", (login_user,))
+                    param = "%s" if (hasattr(cursor, "mogrify") or "psycopg" in str(type(cursor))) else "?"
+                    cursor.execute(f"SELECT password FROM admin_users WHERE username = {param}", (login_user,))
                     row = cursor.fetchone()
                     conn.close()
                     
@@ -1416,16 +1425,18 @@ else:
                     st.error("Passwords do not match.")
                 else:
                     try:
-                        conn = sqlite3.connect(str(DB_PATH))
+                        conn = get_connection()
                         cursor = conn.cursor()
-                        cursor.execute("INSERT INTO admin_users VALUES (?, ?)", (new_user, hash_password(new_pass)))
+                        param = "%s" if (hasattr(cursor, "mogrify") or "psycopg" in str(type(cursor))) else "?"
+                        cursor.execute(f"INSERT INTO admin_users VALUES ({param}, {param})", (new_user, hash_password(new_pass)))
                         conn.commit()
                         conn.close()
                         st.success("Admin Account registered successfully! You can now log in.")
-                    except sqlite3.IntegrityError:
-                        st.error("Username already exists. Choose a different one.")
                     except Exception as e:
-                        st.error(f"Registration failed: {e}")
+                        if "unique" in str(e).lower() or "duplicate" in str(e).lower() or "integrity" in str(e).lower():
+                            st.error("Username already exists. Choose a different one.")
+                        else:
+                            st.error(f"Registration failed: {e}")
     else:
         # LOGGED IN VIEW
         st.success(f"Authorized Access Granted (User: {st.session_state['admin_user']})")
@@ -1542,10 +1553,12 @@ else:
                 
                 if st.button("💾 Save Changes to DB", type="primary", key="save_route_weights_btn"):
                     try:
-                        conn = sqlite3.connect(str(DB_PATH))
+                        conn = get_connection()
+                        cursor = conn.cursor()
+                        param = "%s" if (hasattr(cursor, "mogrify") or "psycopg" in str(type(cursor))) else "?"
                         for index, row in edited_df.iterrows():
-                            conn.execute(
-                                "UPDATE routes SET route_weight = ? WHERE id = ?",
+                            cursor.execute(
+                                f"UPDATE routes SET route_weight = {param} WHERE id = {param}",
                                 (float(row['route_weight']), int(row['id']))
                             )
                         conn.commit()
@@ -1574,9 +1587,8 @@ else:
             }
             selected_table = table_map[table_choice]
             
-            conn = sqlite3.connect(str(DB_PATH))
-            full_table_df = pd.read_sql_query(f"SELECT * FROM {selected_table}", conn)
-            conn.close()
+            engine = get_sqlalchemy_engine()
+            full_table_df = pd.read_sql_query(f"SELECT * FROM {selected_table}", engine)
             
             if full_table_df.empty:
                 st.info(f"No records found in table `{selected_table}`.")
