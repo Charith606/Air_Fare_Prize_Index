@@ -46,6 +46,7 @@ from src.scraper.ota_scraper import OTAScraper
 from src.api.ignav_client import search_ignav
 from src.collection.itinerary_extractor import extract_itineraries
 from src.config.database import get_sqlalchemy_engine, get_connection
+from src.collection.mospi_collector import run_mospi_sync
 
 # Set page config
 st.set_page_config(page_title="Real-time Airfare Price Index (APIx)", layout="wide")
@@ -97,6 +98,18 @@ def load_index_data():
     return index_df
 
 @st.cache_data(ttl=5)
+
+@st.cache_data(ttl=5)
+def load_mospi_data():
+    try:
+        engine = get_sqlalchemy_engine()
+        mospi_df = pd.read_sql_query("SELECT * FROM mospi_cpi_index ORDER BY index_date ASC", engine)
+        mospi_df.columns = mospi_df.columns.str.lower()
+        return mospi_df
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=5)
 def load_routes_data():
     engine = get_sqlalchemy_engine()
     routes_df = pd.read_sql_query("SELECT * FROM routes", engine)
@@ -112,13 +125,15 @@ def get_stats():
             cleaned_count = conn.execute(text("SELECT COUNT(*) FROM cleaned_fares")).scalar() or 0
             index_count = conn.execute(text("SELECT COUNT(*) FROM price_index")).scalar() or 0
             routes_count = conn.execute(text("SELECT COUNT(*) FROM routes")).scalar() or 0
+            mospi_count = conn.execute(text("SELECT COUNT(*) FROM mospi_cpi_index")).scalar() or 0
     except Exception:
-        raw_count, cleaned_count, index_count, routes_count = 0, 0, 0, 0
+        raw_count, cleaned_count, index_count, routes_count, mospi_count = 0, 0, 0, 0, 0
     return {
         "raw": raw_count,
         "cleaned": cleaned_count,
         "index": index_count,
-        "routes": routes_count
+        "routes": routes_count,
+        "mospi": mospi_count
     }
 
 
@@ -1253,7 +1268,7 @@ def run_live_backend_pipeline(progress_bar, status_text, protocol_choice="scrape
 
 # ----------------- SIDEBAR PORTAL SELECTION -----------------
 st.sidebar.title("Navigation")
-portal = st.sidebar.selectbox("Choose Portal", ["🌐 Public User Portal", "🔐 MoSPI Admin Portal"])
+portal = st.sidebar.selectbox("Choose Portal", ["🌐 Public User Portal", "🏛️ MoSPI Official Benchmarks (eSankhyiki)", "🔐 MoSPI Admin Portal"])
 
 # Clear cache helper button
 if st.sidebar.button("🔄 Refresh Application Data", use_container_width=True):
